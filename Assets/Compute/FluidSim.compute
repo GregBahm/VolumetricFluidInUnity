@@ -1,0 +1,187 @@
+﻿#pragma kernel Advect
+#pragma kernel AddImpulse
+#pragma kernel ClearTextures
+#pragma kernel ComputeDivergence
+#pragma kernel Jacobi
+#pragma kernel SubtractGradient
+#pragma kernel DrawPressureBoundary
+#pragma kernel DrawVelocityBoundary
+
+#define DefaultInkColor float3(0, 0.6, 0.4)
+#define DefaultImpulseStrength 1
+
+float impulseRadius;
+float dyeDissipation;
+float velocityDissipation;
+float timestep;
+
+RWTexture3D<float4> velocity;
+RWTexture3D<float4> dye;
+RWTexture3D<float4> divergence;
+RWTexture3D<float4> pressure;
+
+Texture3D<float4> ReadDye;
+SamplerState samplerReadDye;
+
+Texture3D<float4> ReadVelocity;
+SamplerState samplerReadVelocity;
+
+Texture3D<float4> ReadDivergence;
+SamplerState samplerReadDivergence;
+
+Texture3D<float4> ReadPressure;
+SamplerState samplerReadPressure;
+
+float3 resolution;
+float3 impulsePosition;
+float3 impulseDirection;
+
+struct BoundaryData
+{
+    float3 pixelCoords;
+    float3 insideOffset;
+};
+
+StructuredBuffer<BoundaryData> boundaryData;
+
+// ADD IMPULSE
+
+float Gaussian(float3 pos, float radius)
+{
+    return exp(-dot(pos, pos) / (radius * radius));
+}
+
+[numthreads(16,16,1)]
+void AddImpulse(uint3 id : SV_DispatchThreadID)
+{
+    float3 resolutionSample = resolution - float3(1, 1, 1);
+    float3 idSample = float3(id) + float3(0.5, 0.5, 0.5);
+    float3 centerToCurrent = idSample - impulsePosition * resolution;
+
+    float3 gaussianValue = Gaussian(centerToCurrent, impulseRadius);
+    float3 outputColor = DefaultInkColor * gaussianValue;
+    float4 readColor = ReadDye.SampleLevel(samplerReadDye, idSample / resolution, 0);
+
+    outputColor = outputColor + readColor.rgb;
+
+    float3 outputVelocity = DefaultImpulseStrength * gaussianValue * impulseDirection;
+    float4 readVelocity = ReadVelocity.SampleLevel(samplerReadVelocity, idSample / resolution, 0);
+
+    outputVelocity = outputVelocity + readVelocity.rgb;
+
+    dye[id] = float4(outputColor.rgb, 1);
+    velocity[id] = float4(outputVelocity.rgb, 1);
+}
+
+[numthreads(16,16,1)]
+void Advect(uint3 id : SV_DispatchThreadID)
+{
+    float3 idSample = float3(id) + float3(0.5, 0.5, 0.5);
+    float4 velocityAtId = ReadVelocity.SampleLevel(samplerReadVelocity, idSample / resolution, 0);
+
+    float3 backtrackSamplePoint = idSample / resolution - timestep * velocityAtId.xyz;
+
+    float4 backtrackVelocity = ReadVelocity.SampleLevel(samplerReadVelocity, backtrackSamplePoint, 0);
+    float4 backtrackDye = ReadDye.SampleLevel(samplerReadDye, backtrackSamplePoint, 0);
+
+    dye[id] = float4(dyeDissipation * backtrackDye.xyz, 1);
+    velocity[id] = float4(velocityDissipation * backtrackVelocity.xyz, 1);
+}
+
+[numthreads(16, 16, 1)]
+void ComputeDivergence(uint3 id : SV_DispatchThreadID)
+{
+    float3 idSample = float3(id) + float3(0.5, 0.5, 0.5);
+
+    // Compute neighbors
+    float4 velXPos = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3( 1, 0, 0)) / resolution, 0);
+    float4 velXNeg = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3(-1, 0, 0)) / resolution, 0);
+    float4 velYPos = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3(0,  1, 0)) / resolution, 0);
+    float4 velYNeg = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3(0, -1, 0)) / resolution, 0);
+    float4 velZPos = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3(0, 0,  1)) / resolution, 0);
+    float4 velZNeg = ReadVelocity.SampleLevel(samplerReadVelocity, (idSample + float3(0, 0, -1)) / resolution, 0);
+
+    // TODO: multiply 1/dx
+    float3 rdx = 2 / resolution;
+    //rdx = rdx * 10;
+    //float3 rdx = 0.5 / resolution.xyz;
+    divergence[id] = float4((velXPos.x - velXNeg.x) + (velYPos.y - velYNeg.y) + (velZPos.z - velZNeg.z), 0, 0, 1);
+}
+
+[numthreads(16, 16, 1)]
+void Jacobi(uint3 id : SV_DispatchThreadID)
+{
+    float3 idSample = float3(id)+float3(0.5, 0.5, 0.5);
+
+    // Compute neighbors
+    float pressureXPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(1, 0, 0)) / resolution, 0).x;
+    float pressureXNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(-1, 0, 0)) / resolution, 0).x;
+    float pressureYPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, 1, 0)) / resolution, 0).x;
+    float pressureYNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, -1, 0)) / resolution, 0).x;
+    float pressureZPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, 0, 1)) / resolution, 0).x;
+    float pressureZNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, 0, -1)) / resolution, 0).x;
+
+    // TODO: multiply 1/dx
+    float divergence = ReadDivergence.SampleLevel(samplerReadDivergence, idSample / resolution, 0).x;
+    float3 uvRes = 2 / resolution;
+
+    float denom = 2 * dot(uvRes, uvRes);
+    float xMult = uvRes.y * uvRes.y + uvRes.z * uvRes.z;
+    float yMult = uvRes.x * uvRes.x + uvRes.z * uvRes.z;
+    float zMult = uvRes.x * uvRes.x + uvRes.y * uvRes.y;
+    float divMult = uvRes.x * uvRes.x * uvRes.y * uvRes.y * uvRes.z * uvRes.z;
+
+    pressure[id] = float4((pressureXPos + pressureXNeg + pressureYPos + pressureYNeg + pressureZPos + pressureZNeg - divergence) / 6, 0, 0, 1);
+}
+
+[numthreads(16, 16, 1)]
+void SubtractGradient(uint3 id : SV_DispatchThreadID)
+{
+    float3 idSample = float3(id)+float3(0.5, 0.5, 0.5);
+    float4 velocityAtId = ReadVelocity.SampleLevel(samplerReadVelocity, idSample / resolution, 0);
+
+    // Compute neighbors
+    float pressureXPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3( 1, 0, 0)) / resolution, 0).x * 0.5;
+    float pressureXNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(-1, 0, 0)) / resolution, 0).x * 0.5;
+    float pressureYPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0,  1, 0)) / resolution, 0).x * 0.5;
+    float pressureYNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, -1, 0)) / resolution, 0).x * 0.5;
+    float pressureZPos = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, 0,  1)) / resolution, 0).x * 0.5;
+    float pressureZNeg = ReadPressure.SampleLevel(samplerReadPressure, (idSample + float3(0, 0, -1)) / resolution, 0).x * 0.5;
+
+    // TODO: multiply 1/dx
+    float4 pressureGradient = float4(pressureXPos - pressureXNeg, pressureYPos - pressureYNeg, pressureZPos - pressureZNeg, 1);
+    
+    velocity[id] = float4(velocityAtId.xyz - pressureGradient.xyz , 1);
+}
+
+float boundaryValue;
+
+[numthreads(16, 1, 1)]
+void DrawPressureBoundary(uint3 id : SV_DispatchThreadID)
+{
+    uint3 index = int3(boundaryData[id.x].pixelCoords);
+    int3 offset = int3(boundaryData[id.x].insideOffset);
+
+    float pressureValue = ReadPressure.SampleLevel(samplerReadPressure, (index + offset) / resolution, 0).x;
+    
+    pressure[index] = float4(pressureValue * boundaryValue, 0, 0, 1);
+}
+
+[numthreads(16, 1, 1)]
+void DrawVelocityBoundary(uint3 id : SV_DispatchThreadID)
+{
+    uint3 index = int3(boundaryData[id.x].pixelCoords);
+    int3 offset = int3(boundaryData[id.x].insideOffset);
+
+    velocity[index] = float4(0, 0, 0, 1);
+}
+
+// CLEAR TEXTURE
+
+RWTexture3D<float4> clearTexture;
+
+[numthreads(16, 16, 1)]
+void ClearTextures(uint3 id : SV_DispatchThreadID)
+{
+    clearTexture[id] = float4(0, 0, 0, 1);
+}
