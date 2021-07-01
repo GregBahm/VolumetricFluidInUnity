@@ -105,7 +105,7 @@ public class FlowingParticlesScript : MonoBehaviour
         particleMat.SetBuffer("_ParticleBuffer", _particleBuffer);
         particleMat.SetFloat("_ParticleSize", particleSize);
         particleMat.SetPass(0);
-        Graphics.DrawProcedural(MeshTopology.Triangles, 6, particlePointCount);
+        Graphics.DrawProceduralNow(MeshTopology.Triangles, 6, particlePointCount);
     }
     private void OnDestroy()
     {

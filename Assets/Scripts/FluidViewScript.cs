@@ -83,6 +83,6 @@ public class FluidViewScript : MonoBehaviour
         particleMat.SetBuffer("_MeshBuffer", _meshBuffer);
         particleMat.SetBuffer("_ParticleBuffer", _particleBuffer);
         particleMat.SetPass(0);
-        Graphics.DrawProcedural(MeshTopology.Quads, meshVertCount, particlePointCount);
+        Graphics.DrawProceduralNow(MeshTopology.Quads, meshVertCount, particlePointCount);
 	}
 }
