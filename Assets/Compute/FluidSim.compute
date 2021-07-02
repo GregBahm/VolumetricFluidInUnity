@@ -7,7 +7,6 @@
 #pragma kernel DrawPressureBoundary
 #pragma kernel DrawVelocityBoundary
 
-#define DefaultInkColor float3(0, 0.6, 0.4)
 #define DefaultImpulseStrength 1
 
 float impulseRadius;
@@ -32,7 +31,9 @@ SamplerState samplerReadDivergence;
 Texture3D<float4> ReadPressure;
 SamplerState samplerReadPressure;
 
-float3 resolution;
+float3 inkColor;
+
+float3 resolution; 
 float3 impulsePosition;
 float3 impulseDirection;
 
@@ -59,7 +60,7 @@ void AddImpulse(uint3 id : SV_DispatchThreadID)
     float3 centerToCurrent = idSample - impulsePosition * resolution;
 
     float3 gaussianValue = Gaussian(centerToCurrent, impulseRadius);
-    float3 outputColor = DefaultInkColor * gaussianValue;
+    float3 outputColor = inkColor * gaussianValue;
     float4 readColor = ReadDye.SampleLevel(samplerReadDye, idSample / resolution, 0);
 
     outputColor = outputColor + readColor.rgb;

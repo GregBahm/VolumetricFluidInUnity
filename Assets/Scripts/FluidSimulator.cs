@@ -10,6 +10,8 @@ public class FluidSimulator : MonoBehaviour
     public float VelocityDissipation = 0.9999f;
     public float TimeStep = 0.01f;
 
+    public Color InkColor;
+
     private static readonly Vector3 NumThreads = new Vector3(16, 16, 1);
     private static readonly Vector3 FluidSimResolution = new Vector3(64, 64, 64);
 
@@ -33,7 +35,7 @@ public class FluidSimulator : MonoBehaviour
     private TextureType displayTexture = TextureType.Dye;
 
     [SerializeField]
-    private MeshRenderer displayQuad = null;
+    private Material displayCubeMat = null;
 
     [SerializeField]
     private ComputeShader fluidSimulationShader = null;
@@ -162,35 +164,38 @@ public class FluidSimulator : MonoBehaviour
             ClearTexture(dyeTexture);
             ClearTexture(readDyeTexture);
         }
-
-        switch (displayTexture)
-        {
-            case TextureType.Dye:
-                displayQuad.sharedMaterial.mainTexture = readDyeTexture;
-                break;
-            case TextureType.Velocity:
-                displayQuad.sharedMaterial.mainTexture = readVelocityTexture;
-                break;
-            case TextureType.Divergence:
-                displayQuad.sharedMaterial.mainTexture = divergenceTexture;
-                break;
-            case TextureType.Pressure:
-                displayQuad.sharedMaterial.mainTexture = pressureTexture;
-                break;
-        }
-
+        displayCubeMat.SetTexture("_MainTex", GetTexture(displayTexture));
         fluidSimulationShader.SetFloat("impulseRadius", ImpulseRadius);
         fluidSimulationShader.SetFloat("dyeDissipation", DyeDissipation);
         fluidSimulationShader.SetFloat("velocityDissipation", VelocityDissipation);
         fluidSimulationShader.SetFloat("timestep", TimeStep);
+        fluidSimulationShader.SetVector("inkColor", InkColor);
         Shader.SetGlobalTexture("_dyeTexture", dyeTexture);
         Shader.SetGlobalTexture("_velocityTexture", velocityTexture);
+    }
+
+    private Texture GetTexture(TextureType displayTexture)
+    {
+        switch (displayTexture)
+        {
+            case TextureType.Dye:
+                return readDyeTexture;
+            case TextureType.Velocity:
+                return readVelocityTexture;
+            case TextureType.Divergence:
+                return divergenceTexture;
+            case TextureType.Pressure:
+            default:
+                return pressureTexture;
+        }
+
     }
 
     private void OnDestroy()
     {
         boundaryBuffer.Dispose();
     }
+
 
     private void InitializeBoundaryBuffer()
     {

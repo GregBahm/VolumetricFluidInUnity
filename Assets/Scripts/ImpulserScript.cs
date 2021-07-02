@@ -21,12 +21,13 @@ public class ImpulserScript : MonoBehaviour
 	// Update is called once per frame
 	void Update ()
     {
-        Vector3 movement = (transform.localPosition - lastPos);
-        float distChange = movement.sqrMagnitude;
-		if(distChange > float.Epsilon)
-        {
-            simulator.AddImpulse(transform.localPosition, movement * ForceMultiplier);
-        }
-        lastPos = transform.localPosition;
+        simulator.AddImpulse(transform.localPosition, transform.forward * ForceMultiplier);
+        //Vector3 movement = (transform.localPosition - lastPos);
+        //float distChange = movement.sqrMagnitude;
+		//if(distChange > float.Epsilon)
+        //{
+        //    simulator.AddImpulse(transform.localPosition, movement * ForceMultiplier);
+        //}
+        //lastPos = transform.localPosition;
 	}
 }
